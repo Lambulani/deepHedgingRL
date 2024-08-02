@@ -14,16 +14,12 @@ class env_hedging(Env):
     metadata = {'render.modes': ['human']}
 
     def __init__(self, asset_price_model, dt, T, num_steps=100, trading_cost_para=0.01,
-                 L=100, strike_price=None, int_holdings=False, initial_holding=0.5, mode="CF", **kwargs):
-        self.action_space = spaces.Discrete(201)
+                 L=100, strike_price=None, int_holdings=True, initial_holding=0, mode="PL", **kwargs):
+        self.action_space = spaces.Discrete(21)
         if int_holdings:
-            self.observation_space = spaces.Tuple((spaces.Box(low=0, high=np.inf, shape=(1,), dtype=np.int16), #!!
-                                                  spaces.Box(low=0, high=np.inf, shape=(1,)),
-                                                  spaces.Box(low=0, high=np.inf, shape=(1,), dtype=np.int16)))
+            self.observation_space =spaces.Box(low=0, high=np.inf, shape=(5,), dtype=np.float32)
         else:
-            self.observation_space = spaces.Tuple((spaces.Box(low=0, high=np.inf, shape=(1,)),  # !!
-                                                   spaces.Box(low=0, high=np.inf, shape=(1,)),
-                                                   spaces.Box(low=0, high=np.inf, shape=(1,), dtype=np.int16)))
+            self.observation_space =spaces.Box(low=0, high=np.inf, shape=(5,), dtype=np.float32)
         assert (mode in ["PL", "CF"]), "Only 'PL' and 'CL' are allowed values for mode."
         self.asset_price_model = asset_price_model
         self.current_price = asset_price_model.get_current_price()
@@ -63,11 +59,12 @@ class env_hedging(Env):
         reward_option_price = self.L * ((new_option_price - self.current_option_price) - new_h *
                                         (next_price - self.current_price))
         reward_trading_cost = - self.trading_cost_para * self.dt * (abs(delta_h) + 0.01 * delta_h**2)
+        reward = reward_option_price + reward_trading_cost
         self.current_option_price = new_option_price
         if self.done:
             pass
             #reward_trading_cost += - self.trading_cost_para * abs(new_h * next_price)
-        return [reward_option_price, reward_trading_cost]
+        return reward
 
     def step(self, delta_h):
         if self.int_holdings:
@@ -88,7 +85,8 @@ class env_hedging(Env):
         self.current_price = next_price
         self.h = new_h
         state = self.get_state()
-        return [state, reward, self.done]
+        info = {}
+        return [state, reward, self.done, info]
 
     def get_state(self):
         time_to_maturity = self.T - self.n * self.dt
@@ -110,10 +108,13 @@ class env_hedging(Env):
         if self.int_holdings:
             self.h = round(self.h)
         state = self.get_state()
+        info = {}
+    
         return state
 
     def render(self, mode='human', close=False):
         return self.get_state()
+
 
 
 
