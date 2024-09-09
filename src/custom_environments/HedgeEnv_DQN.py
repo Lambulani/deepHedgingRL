@@ -11,7 +11,7 @@ from gym.utils import seeding
 #Setting up the action space for DQN 
 action_mapping = np.arange(-100, 101) 
 #define the hedging object 
-class env_hedging(Env):
+class env_hedging_dqn(Env):
     metadata = {'render.modes': ['human']}
 
     def __init__(self, asset_price_model, dt, T, num_steps=100, cost_multiplier = 0, tick_size=0.01,

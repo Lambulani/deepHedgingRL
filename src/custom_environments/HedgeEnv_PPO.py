@@ -6,18 +6,16 @@ from gym.utils import seeding
 
 
 
-# ### Setting up the Environment
-#Setting up the action space for DQN 
-action_mapping = np.arange(-100, 101) 
+# ### Setting up the Environment 
 
 #define the hedging object 
-class env_hedging(Env):
+class env_hedging_ppo(Env):
     metadata = {'render.modes': ['human']}
 
     def __init__(self, asset_price_model, dt, T, num_steps=100, cost_multiplier = 0, tick_size=0.01,
                  L=1, strike_price=None, int_holdings=True, initial_holding=0, mode="PL", **kwargs):
         super().__init__()
-        self.action_space = spaces.Discrete(201)
+        self.action_space = spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32)
         self.observation_space = spaces.Box(low=0, high=np.inf, shape=(5,), dtype=np.float32)
         assert (mode in ["PL", "CF"]), "Only 'PL' and 'CL' are allowed values for mode."
         self.asset_price_model = asset_price_model
@@ -52,7 +50,7 @@ class env_hedging(Env):
             payoff = self.L *100* max(0, next_price - self.strike_price)
             reward += asset_value - payoff
         return reward 
-    def _compute_pl_reward(self, old_h, new_h, next_price, delta_h):
+    def _compute_pl_reward(self, old_h, next_price, delta_h):
         new_option_price = self.option_price_model.compute_option_price(self.n, next_price)
         reward_option_price = self.L * (100*(new_option_price - self.current_option_price) - old_h*
                                         (next_price - self.current_price))
@@ -65,7 +63,7 @@ class env_hedging(Env):
         return reward
 
     def step(self, delta_h):
-        delta_h = action_mapping[delta_h]
+        delta_h = 100*delta_h[0]
         if self.int_holdings:
             delta_h = round(delta_h)
         new_h = self.h + delta_h
@@ -78,7 +76,7 @@ class env_hedging(Env):
         if self.mode == "CF":
             reward = self._compute_cf_reward(new_h, next_price, delta_h)
         elif self.mode == "PL":
-            reward = self._compute_pl_reward(self.h, new_h, next_price, delta_h)
+            reward = self._compute_pl_reward(self.h, next_price, delta_h)
             self.delta = self.option_price_model.compute_delta(self.n, self.current_price)
         else:
             assert "error 1"
