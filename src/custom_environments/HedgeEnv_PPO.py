@@ -94,6 +94,14 @@ class env_hedging_ppo(Env):
         else:
             return np.array([self.h, self.current_price, time_to_maturity], dtype=float)
         
+    def set_state(self, h, current_price, time_to_maturity, current_option_price, delta):
+        self.h = h
+        self.current_price= current_price
+        self.n= int((self.T-time_to_maturity)/self.dt)
+        self.current_option_price = current_option_price
+        self.delta= delta 
+
+        
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
         return [seed]
