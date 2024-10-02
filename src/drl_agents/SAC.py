@@ -1,6 +1,8 @@
 #Import the dependencies 
 import gym
 import numpy as np
+import sys 
+sys.path.append("C:/Users/levyb/Documents/Masters Data Science - 2nd Year/deepHedgingRL")
 import torch
 import matplotlib.pyplot as plt
 import tensorflow as tf
@@ -105,7 +107,6 @@ if not os.path.exists(logdir):
     os.makedirs(logdir)
 
 # Instantiate and train the SAC model
-env = make_vec_env(env)
 
 model = SAC(
     policy="MlpPolicy", 
