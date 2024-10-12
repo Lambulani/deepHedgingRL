@@ -29,7 +29,7 @@ class GenericAssetPriceModel(ABC):
 
 
 class GBM(GenericAssetPriceModel):
-    def __init__(self, mu=0, dt=0.1, s_0=100, sigma=0.2):
+    def __init__(self, mu=0, dt=1/5, s_0=100, sigma=0.01):
         self.mu = mu
         self.dt = dt
         self.s_0 = s_0

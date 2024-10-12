@@ -43,33 +43,45 @@ class BSM(GenericOptionPriceModel):
         else:
             raise ValueError("'mode' must be either 'step' or 'ttm'")
 
-        if time_to_maturity < 1e-7:
+        if time_to_maturity < 1e-7:  # Very small time to maturity, considered as zero
             if time_to_maturity != 0.0:
                 warnings.warn("'time_to_maturity' is smaller than 1e-7. This can cause numerical instability.")
             return max(0, asset_price - self.strike_price)
-        d_1 = (np.log(asset_price / self.strike_price) + (self.risk_free_interest_rate + self.volatility**2 / 2)
-               * time_to_maturity) / (self.volatility * np.sqrt(time_to_maturity))
-        d_2 = d_1 - self.volatility * np.sqrt(time_to_maturity)
-        PVK = self.strike_price * np.exp(-self.risk_free_interest_rate * time_to_maturity)
-        option_price = norm.cdf(d_1) * asset_price - norm.cdf(d_2) * PVK
+
+        try:
+            d_1 = (np.log(asset_price / self.strike_price) + (self.risk_free_interest_rate + self.volatility**2 / 2)
+                   * time_to_maturity) / (self.volatility * np.sqrt(time_to_maturity))
+            d_2 = d_1 - self.volatility * np.sqrt(time_to_maturity)
+            PVK = self.strike_price * np.exp(-self.risk_free_interest_rate * time_to_maturity)
+            option_price = norm.cdf(d_1) * asset_price - norm.cdf(d_2) * PVK
+        except ZeroDivisionError:
+            warnings.warn("Division by zero encountered when calculating option price. Returning intrinsic value.")
+            return max(0, asset_price - self.strike_price)
+        
         return option_price
 
     def compute_delta_ttm(self, ttm, asset_price):
-        time_to_maturity = ttm
-        d_1 = (np.log(asset_price / self.strike_price) + (self.risk_free_interest_rate + self.volatility**2 / 2)
-               * time_to_maturity) / (self.volatility * np.sqrt(time_to_maturity))
-        delta = norm.cdf(d_1)
+        time_to_maturity = max(ttm, 1e-7)  # Prevent zero or near-zero time to maturity
+        try:
+            d_1 = (np.log(asset_price / self.strike_price) + (self.risk_free_interest_rate + self.volatility**2 / 2)
+                   * time_to_maturity) / (self.volatility * np.sqrt(time_to_maturity))
+            delta = norm.cdf(d_1)
+        except ZeroDivisionError:
+            warnings.warn("Division by zero encountered when calculating delta. Returning 0 delta.")
+            return 0.0
         return delta
 
     def compute_delta(self, n, asset_price):
-        time_to_maturity = self.T - n * self.dt
-        d_1 = (np.log(asset_price / self.strike_price) + (self.risk_free_interest_rate + self.volatility**2 / 2)
-               * time_to_maturity) / (self.volatility * np.sqrt(time_to_maturity))
-        delta = norm.cdf(d_1)
+        time_to_maturity = max(self.T - n * self.dt, 1e-7)  # Avoid zero or negative time to maturity
+        try:
+            d_1 = (np.log(asset_price / self.strike_price) + (self.risk_free_interest_rate + self.volatility**2 / 2)
+                   * time_to_maturity) / (self.volatility * np.sqrt(time_to_maturity))
+            delta = norm.cdf(d_1)
+        except ZeroDivisionError:
+            warnings.warn("Division by zero encountered when calculating delta. Returning 0 delta.")
+            return 0.0
         return delta
 
-
-# In[ ]:
 
 
 
