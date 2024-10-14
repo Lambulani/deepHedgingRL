@@ -37,15 +37,20 @@ class GBM(GenericAssetPriceModel):
         self.current_price = s_0
 
     def compute_next_price(self):
-        i = np.random.normal(0, np.sqrt(self.dt))
-        new_price = self.current_price * np.exp((self.mu - self.sigma ** 2 / 2) * self.dt
-                   + self.sigma * i)
+        # Wiener process increment
+        dz = np.random.normal(0, 1) * np.sqrt(self.dt)
+        
+        # GBM formula
+        new_price = self.current_price * np.exp((self.mu - 0.5 * self.sigma ** 2) * self.dt
+                   + self.sigma * dz)
         self.current_price = new_price
 
     def reset(self):
+        # Reset to initial price
         self.current_price = self.s_0
 
     def get_current_price(self):
+        # Return the current price
         return self.current_price
 
 

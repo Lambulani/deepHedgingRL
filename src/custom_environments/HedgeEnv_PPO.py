@@ -6,15 +6,13 @@ from gym.utils import seeding
 
 
 # ### Setting up the Environment 
-
 #define the hedging object 
 class env_hedging_ppo(Env):
     metadata = {'render.modes': ['human']}
-
-    def __init__(self, asset_price_model, dt, T, num_steps=100, cost_multiplier =0 , tick_size=0.01,
-                 L=1, strike_price=100, integer_holdings =True, initial_holding=0, mode="PL", **kwargs):
+    def __init__(self, asset_price_model, dt, T, num_steps=100, cost_multiplier = 0.005, tick_size=0.01,
+                 L=1, strike_price=100, integer_holdings =True, initial_holding=0, mode="PL",  **kwargs):
         super().__init__()
-        self.action_space = spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32)
+        self.action_space = spaces.Discrete(201)
         self.observation_space = spaces.Box(low=0, high=np.inf, shape=(5,), dtype=np.float32)
         assert (mode in ["PL", "CF"]), "Only 'PL' and 'CL' are allowed values for mode."
         self.asset_price_model = asset_price_model
@@ -50,19 +48,25 @@ class env_hedging_ppo(Env):
             reward += asset_value - payoff
         return reward 
     def _compute_pl_reward(self, old_h, next_price, delta_h):
-        new_option_price = self.option_price_model.compute_option_price(self.n, next_price)
-        reward_option_price = self.L * (100*(new_option_price - self.current_option_price) - old_h*
-                                        (next_price - self.current_price))
-        trading_cost =  self.cost_multiplier* self.tick_size * self.dt * (abs(delta_h) + 0.01 * delta_h**2)
-        delta_wealth = reward_option_price - trading_cost
-        reward = delta_wealth - (0.1/2)*(delta_wealth**2) #reward function according to Kolm (2019), quadratic utility mean variance optimization 
-        self.current_option_price = new_option_price
-        if self.done:
-            pass
-        return reward
+            new_option_price = self.option_price_model.compute_option_price(self.n, next_price)
+            reward_option_price = self.L * (100*(new_option_price - self.current_option_price) + old_h*
+                                                (next_price - self.current_price))
+            trading_cost =  self.cost_multiplier* self.tick_size * (abs(delta_h) + 0.01 * delta_h**2)
+            delta_wealth = reward_option_price - trading_cost
+            self.current_option_price = new_option_price
+            
+            if self.done:
+                asset_value = next_price * (old_h + delta_h)  - self.cost_multiplier* self.tick_size * (abs(old_h + delta_h) + 0.01 * (old_h + delta_h)**2)
+                payoff = self.L *100* max(0, next_price - self.strike_price)
+                delta_wealth = delta_wealth + asset_value + payoff
+
+            reward = delta_wealth - (0.1/2)*(delta_wealth**2) #reward function according to Kolm (2019), quadratic utility mean variance optimization 
+            reward = reward/1e6 #scaled reward
+            return reward
 
     def step(self, delta_h):
-        delta_h = 100*delta_h[0]
+        action_mapping = np.arange(-100, 101) 
+        delta_h = action_mapping[delta_h]
         if self.integer_holdings :
             delta_h = round(delta_h)
         new_h = self.h + delta_h
@@ -83,7 +87,7 @@ class env_hedging_ppo(Env):
         self.h = new_h
         state = self.get_state()
         info = {}
-        return [state, reward,self.done,  self.done,  info]
+        return [state, reward, self.done,  self.done,  info]
 
     def get_state(self):
         time_to_maturity = self.T - self.n * self.dt
