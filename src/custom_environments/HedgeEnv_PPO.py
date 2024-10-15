@@ -109,7 +109,7 @@ class env_hedging_ppo(Env):
         return [seed]
 
 
-    def reset(self,seed = None, options = None, **kwargs):
+    def reset(self,seed = 2024, options = None, **kwargs):
         super().reset(seed =seed) 
         self.seed(seed)
         self.asset_price_model.reset()

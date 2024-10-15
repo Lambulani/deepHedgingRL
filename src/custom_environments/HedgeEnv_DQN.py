@@ -96,7 +96,7 @@ class env_hedging_dqn(Env):
         else:
             return np.array([self.h, self.current_price, time_to_maturity], dtype=float)
 
-    def reset(self, seed=None, **kwargs):
+    def reset(self, seed=2024, **kwargs):
         if seed is not None:
             np.random.seed(seed)
             
