@@ -13,7 +13,7 @@ class env_hedging_ppo(Env):
     def __init__(self, asset_price_model, dt, T, num_steps= 50, cost_multiplier = 0, tick_size=0.01,
                  L=1, strike_price=100, integer_holdings =True, initial_holding=0, mode="PL", shares_per_contract =100,**kwargs):
         super().__init__()
-        self.action_space = spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32)
+        self.action_space = spaces.Discrete(201)
         self.observation_space = spaces.Box(low=0, high=np.inf, shape=(5,), dtype=np.float32)
         assert (mode in ["PL", "CF"]), "Only 'PL' and 'CL' are allowed values for mode."
         self.asset_price_model = asset_price_model
@@ -57,7 +57,7 @@ class env_hedging_ppo(Env):
         delta_V = self.L * self.shares_per_contract*(new_option_price - self.current_option_price)
         delta_S = prev_h*(next_price - self.current_price)
         trading_cost =  self.cost_multiplier* self.tick_size * (abs(delta_h) + 0.01 * delta_h**2)
-        delta_wealth = delta_V + delta_S - trading_cost
+        delta_wealth = delta_S - trading_cost
         self.current_option_price = new_option_price
         
         if self.done:
@@ -66,12 +66,14 @@ class env_hedging_ppo(Env):
             payoff = self.L *self.shares_per_contract* max(0, next_price - self.strike_price)
             delta_wealth = delta_wealth +  payoff +asset_value - termination_cost
 
-        reward = delta_wealth - (0.1/2)*(delta_wealth**2) #reward function according to Kolm (2019), quadratic utility mean variance optimization 
+        reward = delta_wealth - (0.1/2)*(delta_wealth**2) #reward function according to Kolm (2019), quadratic utility mean variance optimization
+        reward = reward/1e5 
         return reward
 
     def step(self, delta_h):
-         
-        delta_h = 100*delta_h[0]
+        delta_mapping = np.arange(-100, 101)
+        delta_h = delta_mapping[delta_h]
+        # delta_h = 100*delta_h[0]
         if self.integer_holdings :
             delta_h = round(delta_h)
         new_h = self.h + delta_h
@@ -84,7 +86,7 @@ class env_hedging_ppo(Env):
         if self.mode == "CF":
             reward = self._compute_cf_reward(new_h, next_price, delta_h)
         elif self.mode == "PL":
-            reward = self._compute_pl_reward(self.h, next_price, delta_h)/1e5
+            reward = self._compute_pl_reward(self.h, next_price, delta_h)
             self.delta = self.option_price_model.compute_delta(self.n, self.current_price)
         else:
             assert "error 1"
