@@ -1,0 +1,17 @@
+# config_ppo.yaml
+model_name: PPO
+learning_rate: 0.0003       # Learning rate for the optimizer
+n_steps: 2048               # Number of steps to run in each environment per update
+batch_size: 64              # Size of mini-batches for each gradient update
+n_epochs: 10                # Number of epochs when optimizing the surrogate
+gamma: 0.99                 # Discount factor
+gae_lambda: 0.95            # GAE (Generalized Advantage Estimation) parameter
+clip_range: 0.2             # Clipping parameter for the surrogate objective
+ent_coef: 0.01              # Entropy coefficient to encourage exploration
+vf_coef: 0.5                # Value function coefficient in the loss function
+max_grad_norm: 0.5          # Maximum value for gradient clipping
+hidden_layers: [64, 64]     # Sizes of hidden layers in the policy network
+activation_function: "relu" # Activation function (e.g., relu, tanh)
+total_timesteps: 1000000    # Total number of timesteps to train on
+save_interval: 10000        # Frequency to save model checkpoints
+log_interval: 10            # Frequency of logging during training

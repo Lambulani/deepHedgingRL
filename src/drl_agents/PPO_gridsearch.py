@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import tensorflow as tf
 from src.pricing.asset_price_process import GBM
 from src.pricing.option_price_process import BSM
-from src.custom_environments.HedgeEnv_PPO import env_hedging_ppo
+from src.custom_environments.HedgeEnv import env_hedging
 from torch import nn
 
 
@@ -24,7 +24,7 @@ r = 0
 apm = GBM(mu=mu, dt=dt, s_0=s_0, sigma=sigma)
 opm = BSM(strike_price=strike_price, risk_free_interest_rate=r, volatility=sigma, T=T, dt=dt)
 
-env = env_hedging_ppo(asset_price_model=apm, dt=dt, T=T, num_steps=num_steps, cost_multiplier = 0, tick_size=0.01,
+env = env_hedging(asset_price_model=apm, dt=dt, T=T, num_steps=num_steps, cost_multiplier = 0, tick_size=0.01,
                      L=1, strike_price=strike_price, integer_holdings=True, initial_holding=0, mode="PL", shares_per_contract=100,
                   option_price_model=opm)
 

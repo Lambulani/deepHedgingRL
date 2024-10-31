@@ -8,24 +8,29 @@ from gym.utils import seeding
 
 # ### Setting up the Environment 
 #define the hedging object 
-class env_hedging_ppo(Env):
+class env_hedging(Env):
     metadata = {'render.modes': ['human']}
-    def __init__(self, asset_price_model, dt, T, num_steps= 50, cost_multiplier = 0, tick_size=0.01,
-                 L=1, strike_price=100, integer_holdings =True, initial_holding=0, mode="PL", shares_per_contract =100,**kwargs):
+    def __init__(self, asset_price_model, dt, T, num_steps= 50, cost_multiplier = 0, tick_size=0.1,
+                 L=1, strike_price=100, integer_holdings =True, initial_holding=0, mode="PL", shares_per_contract =100, act_space= "discrete", **kwargs):
         super().__init__()
-        self.action_space = spaces.Discrete(201)
+        assert (act_space in ["discrete", "continuous"])
+        if act_space == "discrete":
+            self.action_space = spaces.Discrete(201)
+        else:
+            self.action_space = spaces.Box(low=-1, high=1, shape=(5,), dtype=np.float32)
+        
         self.observation_space = spaces.Box(low=0, high=np.inf, shape=(5,), dtype=np.float32)
         assert (mode in ["PL", "CF"]), "Only 'PL' and 'CL' are allowed values for mode."
         self.asset_price_model = asset_price_model
         self.current_price = asset_price_model.get_current_price()
-        self.n = 0
+        self.n = -1
         self.T = T
         self.dt = dt
         self.shares_per_contract = shares_per_contract
         if mode == "PL":
             self.option_price_model = kwargs.get('option_price_model', None)
             assert (self.option_price_model is not None), "If 'PL' is chosen a option_price_model needs be be provided."
-            self.current_option_price = self.option_price_model.compute_option_price(self.n, self.current_price)
+            self.current_option_price = self.option_price_model.compute_option_price(0, self.current_price)
             self.delta = self.option_price_model.compute_delta(0, self.current_price)
         self.done = False
         self.num_steps = num_steps
@@ -34,6 +39,7 @@ class env_hedging_ppo(Env):
         self.initial_holding = initial_holding
         self.h = -self.shares_per_contract*self.delta
         self.integer_holdings  = integer_holdings 
+        self.delta_mapping = np.arange(-100,101)
         if integer_holdings :
             self.h = round(self.h)
         if strike_price:
@@ -49,7 +55,7 @@ class env_hedging_ppo(Env):
     #         payoff = self.L *100* max(0, next_price - self.strike_price)
     #         reward += asset_value - payoff
     #     return reward 
-    def _compute_pl_reward(self, prev_h, next_price, delta_h):
+    def _compute_pl_reward(self, prev_h, current_price, next_price, delta_h):
         if self.n ==0 :
             reward =-self.cost_multiplier* self.tick_size * (abs(prev_h) + 0.01 * prev_h**2)
             return reward
@@ -57,7 +63,7 @@ class env_hedging_ppo(Env):
         delta_V = self.L * self.shares_per_contract*(new_option_price - self.current_option_price)
         delta_S = prev_h*(next_price - self.current_price)
         trading_cost =  self.cost_multiplier* self.tick_size * (abs(delta_h) + 0.01 * delta_h**2)
-        delta_wealth = delta_S - trading_cost
+        delta_wealth =  delta_S - trading_cost  #only including portfolio of underlying
         self.current_option_price = new_option_price
         
         if self.done:
@@ -65,18 +71,22 @@ class env_hedging_ppo(Env):
             termination_cost = self.cost_multiplier* self.tick_size * (abs(prev_h + delta_h) + 0.01 * (prev_h + delta_h)**2)
             payoff = self.L *self.shares_per_contract* max(0, next_price - self.strike_price)
             delta_wealth = delta_wealth +  payoff +asset_value - termination_cost
-
-        reward = delta_wealth - (0.1/2)*(delta_wealth**2) #reward function according to Kolm (2019), quadratic utility mean variance optimization
-        reward = reward/1e5 
+        
+        delta_wealth += delta_wealth/0.1
+        std_dev= current_price * np.exp(self.asset_price_model.mu * self.dt)*self.asset_price_model.sigma* np.sqrt(self.dt)
+        delta_wealth = delta_wealth/std_dev
+        reward = delta_wealth - (0.1/2)*(delta_wealth**2) #reward function according to Kolm (2019), quadratic utility mean variance optimization 
         return reward
 
     def step(self, delta_h):
-        delta_mapping = np.arange(-100, 101)
-        delta_h = delta_mapping[delta_h]
-        # delta_h = 100*delta_h[0]
+        delta_h = self.delta_mapping[delta_h]
         if self.integer_holdings :
             delta_h = round(delta_h)
         new_h = self.h + delta_h
+        if abs(new_h) > self.shares_per_contract:
+            new_h = new_h - delta_h
+            delta_h = 0
+        current_price=self.asset_price_model.get_current_price()
         self.asset_price_model.compute_next_price()
         next_price = self.asset_price_model.get_current_price()
         self.n += 1
@@ -86,7 +96,7 @@ class env_hedging_ppo(Env):
         if self.mode == "CF":
             reward = self._compute_cf_reward(new_h, next_price, delta_h)
         elif self.mode == "PL":
-            reward = self._compute_pl_reward(self.h, next_price, delta_h)
+            reward = self._compute_pl_reward(self.h, current_price, next_price, delta_h)
             self.delta = self.option_price_model.compute_delta(self.n, self.current_price)
         else:
             assert "error 1"
