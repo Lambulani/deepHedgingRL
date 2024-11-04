@@ -1,0 +1,68 @@
+from stable_baselines3 import DQN
+from gym import spaces
+from stable_baselines3.dqn.policies import DQNPolicy
+import torch as th
+from torch import nn
+from torch.nn import functional as F
+
+
+class DuMLP(nn.Module):
+    def __init__(self, input_dim: int, output_dim: int):
+        super(DuMLP, self).__init__()
+        
+        # Define a sequence of layers: Linear -> BatchNorm -> ReLU
+        layers = []
+        layer_size = 128
+        for _ in range(5):  # 5 hidden layers
+            layers.append(nn.Linear(input_dim, layer_size))
+            layers.append(nn.BatchNorm1d(layer_size))
+            layers.append(nn.ReLU())
+            input_dim = layer_size  # Update input dim for the next layer
+        
+        # Output layer to match the action space dimension
+        layers.append(nn.Linear(layer_size, output_dim))
+        
+        # Wrap layers in a Sequential model
+        self.model = nn.Sequential(*layers)
+    
+    def forward(self, x: th.Tensor) -> th.Tensor:
+        return self.model(x)
+    
+    def set_training_mode(self, mode: bool):
+        """Sets training mode to control batch normalization layers."""
+        if mode:
+            self.train()
+        else:
+            self.eval()
+
+
+class DuDQNPolicy(DQNPolicy):
+    def __init__(self, observation_space , action_space,
+                  lr_schedule, **kwargs):
+        super(DuDQNPolicy, self).__init__(observation_space, action_space, lr_schedule, **kwargs)
+        
+        # Create the custom feature extractor (MLP with batch norm and ReLU)
+        input_dim = observation_space.shape[0]
+        output_dim = action_space.n
+        self.q_net = DuMLP(input_dim, output_dim)
+        self.q_net_target = DuMLP(input_dim, output_dim)
+        self.q_net_target.load_state_dict(self.q_net.state_dict())
+        self.q_net_target.eval()
+
+        # Set up optimizer for the Q-network
+        self.optimizer = th.optim.Adam(self.q_net.parameters(), lr=1e-4)
+    
+    def forward(self, x: th.Tensor, deterministic : bool = True) -> th.Tensor:
+        return self.q_net(x)
+    
+    def _predict(self, obs: th.Tensor, deterministic: bool = True) -> th.Tensor:
+            q_values = self.q_net(obs)
+            actions = q_values.argmax(dim=1).unsqueeze(-1)
+            return actions
+
+    def update_target_network(self):
+        self.q_net_target.load_state_dict(self.q_net.state_dict())
+    
+    def set_training_mode(self, mode: bool):
+        self.q_net.set_training_mode(mode)
+        self.q_net_target.set_training_mode(mode)

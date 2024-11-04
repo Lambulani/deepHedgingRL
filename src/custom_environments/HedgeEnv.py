@@ -15,11 +15,11 @@ class env_hedging(Env):
         super().__init__()
         assert (act_space in ["discrete", "continuous"])
         if act_space == "discrete":
-            self.action_space = spaces.Discrete(201)
+            self.action_space = spaces.Discrete(21)
         else:
-            self.action_space = spaces.Box(low=-1, high=1, shape=(5,), dtype=np.float32)
+            self.action_space = spaces.Box(low=-1, high=1, shape=(201,), dtype=np.float32)
         
-        self.observation_space = spaces.Box(low=0, high=np.inf, shape=(5,), dtype=np.float32)
+        self.observation_space = spaces.Box(low=0, high=np.inf, shape=(4,), dtype=np.float32)
         assert (mode in ["PL", "CF"]), "Only 'PL' and 'CL' are allowed values for mode."
         self.asset_price_model = asset_price_model
         self.current_price = asset_price_model.get_current_price()
@@ -37,9 +37,9 @@ class env_hedging(Env):
         self.mode = mode
         self.L = L
         self.initial_holding = initial_holding
-        self.h = -self.shares_per_contract*self.delta
+        self.h = initial_holding
         self.integer_holdings  = integer_holdings 
-        self.delta_mapping = np.arange(-100,101)
+        self.delta_mapping = np.arange(-10,11)
         if integer_holdings :
             self.h = round(self.h)
         if strike_price:
@@ -54,38 +54,37 @@ class env_hedging(Env):
     #         asset_value = next_price * new_h - self.cost_multiplier *self.tick_size * np.abs(next_price * new_h)
     #         payoff = self.L *100* max(0, next_price - self.strike_price)
     #         reward += asset_value - payoff
-    #     return reward 
+    #     return reward
+    
     def _compute_pl_reward(self, prev_h, current_price, next_price, delta_h):
         if self.n ==0 :
             reward =-self.cost_multiplier* self.tick_size * (abs(prev_h) + 0.01 * prev_h**2)
             return reward
         new_option_price = self.option_price_model.compute_option_price(self.n, next_price)
         delta_V = self.L * self.shares_per_contract*(new_option_price - self.current_option_price)
-        delta_S = prev_h*(next_price - self.current_price)
+        delta_S = prev_h*(next_price - current_price)
         trading_cost =  self.cost_multiplier* self.tick_size * (abs(delta_h) + 0.01 * delta_h**2)
-        delta_wealth =  delta_S - trading_cost  #only including portfolio of underlying
+        delta_wealth = delta_V + delta_S - trading_cost 
         self.current_option_price = new_option_price
         
-        if self.done:
-            asset_value = next_price * (prev_h + delta_h) 
-            termination_cost = self.cost_multiplier* self.tick_size * (abs(prev_h + delta_h) + 0.01 * (prev_h + delta_h)**2)
-            payoff = self.L *self.shares_per_contract* max(0, next_price - self.strike_price)
-            delta_wealth = delta_wealth +  payoff +asset_value - termination_cost
+        # if self.done:
+        #     # asset_value = next_price * (prev_h + delta_h) 
+        #     termination_cost = self.cost_multiplier* self.tick_size * (abs(prev_h + delta_h) + 0.01 * (prev_h + delta_h)**2)
+        #     payoff = self.L *self.shares_per_contract* max(0, next_price - self.strike_price)
+        #     delta_wealth +=  payoff - termination_cost
         
-        delta_wealth += delta_wealth/0.1
-        std_dev= current_price * np.exp(self.asset_price_model.mu * self.dt)*self.asset_price_model.sigma* np.sqrt(self.dt)
-        delta_wealth = delta_wealth/std_dev
-        reward = delta_wealth - (0.1/2)*(delta_wealth**2) #reward function according to Kolm (2019), quadratic utility mean variance optimization 
-        return reward
+        norm_factor = 1/1e4
+        reward = (delta_wealth - (0.1/2)*(abs(delta_wealth)**2)) #reward function according to Kolm (2019), quadratic utility mean variance optimization 
+        return reward*norm_factor
 
     def step(self, delta_h):
         delta_h = self.delta_mapping[delta_h]
         if self.integer_holdings :
             delta_h = round(delta_h)
         new_h = self.h + delta_h
-        if abs(new_h) > self.shares_per_contract:
-            new_h = new_h - delta_h
-            delta_h = 0
+        #if abs(new_h) > self.shares_per_contract:
+        #    new_h = new_h - delta_h
+        #    delta_h = 0
         current_price=self.asset_price_model.get_current_price()
         self.asset_price_model.compute_next_price()
         next_price = self.asset_price_model.get_current_price()
@@ -109,7 +108,7 @@ class env_hedging(Env):
     def get_state(self):
         time_to_maturity = self.T - self.n * self.dt
         if self.mode == "PL":
-            return np.array([self.h, self.current_price, time_to_maturity, self.current_option_price*self.shares_per_contract, self.delta*self.shares_per_contract],
+            return np.array([self.h, self.current_price, time_to_maturity, self.current_option_price],
                             dtype=float)
         else:
             return np.array([self.h, self.current_price, time_to_maturity], dtype=float)

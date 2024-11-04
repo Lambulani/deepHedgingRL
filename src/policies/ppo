@@ -1,0 +1,51 @@
+import stable_baselines3
+from stable_baselines3 import PPO
+from gym import spaces
+from typing import Callable, Tuple
+from stable_baselines3.common.policies import ActorCriticPolicy
+import torch as th 
+from torch import nn
+from torch.nn import functional as F
+
+class DuPPONetwork(nn.Module):
+    def __init__(self, feature_dim:int, last_layer_dim_pi : int =128, 
+                 last_layer_dim_vf: int =128):
+        super().__init__()
+
+        self.latent_dim_pi = last_layer_dim_pi
+        self.latent_dim_vf = last_layer_dim_vf
+
+        layers = []
+        layer_size = 128
+        for _ in range(5):  # 5 hidden layers
+            layers.append(nn.Linear(feature_dim, layer_size))
+            layers.append(nn.BatchNorm1d(layer_size))
+            layers.append(nn.ReLU())
+            feature_dim = layer_size  # Update input dim for the next layer
+        
+
+        self.policy_net = nn.Sequential(*layers)
+        self.value_net = nn.Sequential(*layers)
+
+    def forward(self, features: th.Tensor)-> Tuple[th.Tensor, th.Tensor]:
+        return self.forward_actor(features), self.forward_critic(features)
+    
+    def forward_actor(self, features: th.Tensor)-> th.Tensor:
+        return self.policy_net(features)
+    
+    def forward_critic(self, features: th.Tensor) -> th.Tensor:
+        return self.value_net(features)
+
+class DuActorCriticPolicy(ActorCriticPolicy):
+    def __init__(
+        self, observation_space: spaces.Box,
+        action_space: spaces.Discrete,
+        lr_schedule: Callable[[float], float],
+        *args, 
+        **kwargs
+    ):
+        kwargs["ortho_init"]= True
+        super().__init__(observation_space, action_space, lr_schedule, *args, **kwargs)
+    
+    def _build_mlp_extractor(self) -> None:
+        self.mlp_extractor = DuPPONetwork(self.features_dim)
