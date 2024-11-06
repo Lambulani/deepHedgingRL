@@ -21,13 +21,13 @@ sigma = 0.01
 r = 0
 
 
+
 apm = GBM(mu=mu, dt=dt, s_0=s_0, sigma=sigma)
 opm = BSM(strike_price=strike_price, risk_free_interest_rate=r, volatility=sigma, T=T, dt=dt)
 
-env = env_hedging(asset_price_model=apm, dt=dt, T=T, num_steps=num_steps, cost_multiplier = 0, tick_size=0.01,
-                     L=1, strike_price=strike_price, integer_holdings=True, initial_holding=0, mode="PL", shares_per_contract=100,
+env = env_hedging(asset_price_model=apm, dt=dt, T=T, num_steps=num_steps, cost_multiplier = 0, tick_size=0.1,
+                     L=1, strike_price=strike_price, integer_holdings=True, initial_holding=0, mode="PL", kappa = 0.1, act_space_type= "continuous",shares_per_contract=100,
                   option_price_model=opm)
-
 
 
 
@@ -44,127 +44,83 @@ import optuna
 import pickle
 
 n_envs = 10
-vec_env = make_vec_env(lambda:env_hedging_ppo(asset_price_model=apm, dt=dt, T=T, num_steps=num_steps, cost_multiplier = 0, tick_size=0.01,
-                     L=1, strike_price=strike_price, integer_holdings=True, initial_holding=0, mode="PL",
-                  option_price_model=opm) , n_envs= n_envs)
+vec_env = make_vec_env(lambda:env_hedging(asset_price_model=apm, dt=dt, T=T, num_steps=num_steps, cost_multiplier = 0, tick_size=0.1,
+                     L=1, strike_price=strike_price, integer_holdings=True, initial_holding=0, mode="PL",kappa=0.1,  act_space_type= "continuous", shares_per_contract=100,
+                  option_price_model=opm), n_envs= n_envs)
 
 
-
-class Du_Custom_Network(nn.Module):
-    
-    def __init__(self, feature_dim: int = 5,last_layer_dim_pi: int = 201,last_layer_dim_vf: int = 1, hidden_dim: int = 64):
+class DuPPONetwork(nn.Module):
+    def __init__(self, feature_dim:int, last_layer_dim_pi : int =256, 
+                 last_layer_dim_vf: int = 256):
         super().__init__()
 
-        # Save output dimensions, used to create the distributions
-        self.hidden_dim = hidden_dim
         self.latent_dim_pi = last_layer_dim_pi
         self.latent_dim_vf = last_layer_dim_vf
 
-        # Policy network with 5 hidden layers, batch normalization before ReLU
-        self.policy_net = nn.Sequential(
-            
-            nn.Linear(feature_dim, hidden_dim),
-            nn.BatchNorm1d(hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.BatchNorm1d(hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.BatchNorm1d(hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.BatchNorm1d(hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, last_layer_dim_pi)
-        )
+        layers = []
+        layer_size = 256
+        for _ in range(5):  # 5 hidden layers
+            layers.append(nn.Linear(feature_dim, layer_size))
+            layers.append(nn.BatchNorm1d(layer_size))
+            layers.append(nn.ReLU())
+            feature_dim = layer_size  # Update input dim for the next layer
+        
 
-        # Value network with 5 hidden layers, batch normalization before ReLU
-        self.value_net = nn.Sequential(
-            nn.Linear(feature_dim, hidden_dim),
-            nn.BatchNorm1d(hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.BatchNorm1d(hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.BatchNorm1d(hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.BatchNorm1d(hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, last_layer_dim_vf)
-        )
+        self.policy_net = nn.Sequential(*layers)
+        self.value_net = nn.Sequential(*layers)
 
-    def forward(self, features: th.Tensor) -> Tuple[th.Tensor, th.Tensor]:
-        """
-        :return: (th.Tensor, th.Tensor) latent_policy, latent_value of the specified network.
-            If all layers are shared, then ``latent_policy == latent_value``
-        """
+    def forward(self, features: th.Tensor)-> Tuple[th.Tensor, th.Tensor]:
         return self.forward_actor(features), self.forward_critic(features)
-
-    def forward_actor(self, features: th.Tensor) -> th.Tensor:
-        logits = self.policy_net(features)
-        return F.softmax(logits, dim=-1) 
-
+    
+    def forward_actor(self, features: th.Tensor)-> th.Tensor:
+        return self.policy_net(features)
+    
     def forward_critic(self, features: th.Tensor) -> th.Tensor:
         return self.value_net(features)
 
-
-class Du_ActorCriticPolicy(ActorCriticPolicy):
+class DuActorCriticPolicy(ActorCriticPolicy):
     def __init__(
-        self,
-        observation_space: spaces.Space,
-        action_space: spaces.Space,
+        self, observation_space: spaces.Box,
+        action_space: spaces.Discrete,
         lr_schedule: Callable[[float], float],
-        *args,
-        **kwargs,
+        *args, 
+        **kwargs
     ):
-        # Disable orthogonal initialization
-        kwargs["ortho_init"] = False
-        super().__init__(
-            observation_space,
-            action_space,
-            lr_schedule,
-            *args,
-            **kwargs,
-        )
-
+        kwargs["ortho_init"]= True
+        super().__init__(observation_space, action_space, lr_schedule, *args, **kwargs)
+    
     def _build_mlp_extractor(self) -> None:
-        self.mlp_extractor =Du_Custom_Network(self.features_dim)
+        self.mlp_extractor = DuPPONetwork(self.features_dim)
 
 
 # Set up directories for logging and saving models
-models_dir = "/home/bndlev001/deepHedgingRL/models/PPO/du/grid_search"
+models_dir = "/home/bndlev001/deepHedgingRL/models/PPO/du/grid_search_1"
 if not os.path.exists(models_dir):
     os.makedirs(models_dir)
 
 # Objective function for Optuna
 def objective(trial):
     # Suggest different hyperparameters
-    learning_rate = trial.suggest_loguniform('learning_rate', 1e-5, 1e-3)
+    learning_rate = trial.suggest_loguniform('learning_rate', 1e-5, 1e-4)
     ent_coef = trial.suggest_loguniform('ent_coef', 1e-2, 0.2)
-    vf_coef = trial.suggest_loguniform('vf_coef', 0.1, 1.0)
+    vf_coef = trial.suggest_loguniform('vf_coef', 0.5, 1.0)
     clip_range = trial.suggest_uniform('clip_range', 0.1, 0.3)
-    gamma =  trial.suggest_uniform('gamma', 0.85, 0.90)
+    gamma =  trial.suggest_uniform('gamma', 0.8, 1)
     gae_lambda = trial.suggest_uniform('gae_lambda', 0.95, 0.99)
     clip_range_vf = trial.suggest_uniform('clip_range_vf', 0.1, 0.3)
-    hidden_dim = trial.suggest_int('hidden_dim', 32, 256)  # Adjust hidden layer size
-
-    # Create a new policy with the sampled hyperparameters
-    class CustomPolicy(ActorCriticPolicy):
-        def _build_mlp_extractor(self):
-            self.mlp_extractor = Du_Custom_Network(self.features_dim, hidden_dim=hidden_dim)
+    
+    
 
     # Instantiate the PPO model with the sampled hyperparameters
     model = PPO(
-        policy=CustomPolicy,
+        policy= DuActorCriticPolicy,
         env=vec_env,
         learning_rate=learning_rate,
         ent_coef=ent_coef,
         vf_coef=vf_coef,
         clip_range=clip_range,
-        gamma= gamma
-        gae_lambda= gae_lambda
+        gamma= gamma,
+        gae_lambda= gae_lambda,
         clip_range_vf= clip_range_vf,
         normalize_advantage= True, 
         tensorboard_log=models_dir,
@@ -175,9 +131,10 @@ def objective(trial):
     )
     
     # Create an evaluation callback to monitor performance
-    eval_env = env_hedging_ppo(asset_price_model=apm, dt=dt, T=T, num_steps=num_steps, cost_multiplier = 0, tick_size=0.01,
-                     L=1, strike_price=strike_price, integer_holdings=True, initial_holding=0, mode="PL",
+    eval_env = env_hedging(asset_price_model=apm, dt=dt, T=T, num_steps=num_steps, cost_multiplier = 0, tick_size=0.1,
+                     L=1, strike_price=strike_price, integer_holdings=True, initial_holding=0, mode="PL", kappa = 0.1, act_space_type= "continuous",shares_per_contract=100,
                   option_price_model=opm)
+
     eval_callback = EvalCallback(eval_env, best_model_save_path=models_dir, log_path=models_dir, eval_freq=5000)
     
     # Train the model

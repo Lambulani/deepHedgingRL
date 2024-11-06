@@ -11,16 +11,19 @@ from gym.utils import seeding
 class env_hedging(Env):
     metadata = {'render.modes': ['human']}
     def __init__(self, asset_price_model, dt, T, num_steps= 50, cost_multiplier = 0, tick_size=0.1,
-                 L=1, strike_price=100, integer_holdings =True, initial_holding=0, mode="PL", shares_per_contract =100, act_space= "discrete", **kwargs):
+                 L=1, strike_price=100, integer_holdings =True, initial_holding=0, mode="PL", kappa = 0.1, shares_per_contract =100, act_space_type= "discrete", **kwargs):
         super().__init__()
-        assert (act_space in ["discrete", "continuous"])
-        if act_space == "discrete":
-            self.action_space = spaces.Discrete(21)
+        self.act_space_type = act_space_type
+        assert (self.act_space_type in  ["discrete", "continuous"])
+        if act_space_type == "discrete":
+            self.action_space = spaces.Discrete(201)
         else:
-            self.action_space = spaces.Box(low=-1, high=1, shape=(201,), dtype=np.float32)
+            self.action_space = spaces.Box(low=-100, high=100, shape=(1,), dtype=np.float32)
         
         self.observation_space = spaces.Box(low=0, high=np.inf, shape=(4,), dtype=np.float32)
         assert (mode in ["PL", "CF"]), "Only 'PL' and 'CL' are allowed values for mode."
+        self.kappa = kappa 
+        self.prev_delta_wealth = 0
         self.asset_price_model = asset_price_model
         self.current_price = asset_price_model.get_current_price()
         self.n = -1
@@ -36,10 +39,10 @@ class env_hedging(Env):
         self.num_steps = num_steps
         self.mode = mode
         self.L = L
-        self.initial_holding = initial_holding
+        self.initial_holding = -100*self.delta
         self.h = initial_holding
         self.integer_holdings  = integer_holdings 
-        self.delta_mapping = np.arange(-10,11)
+        self.delta_mapping = np.arange(-100,101)
         if integer_holdings :
             self.h = round(self.h)
         if strike_price:
@@ -64,23 +67,38 @@ class env_hedging(Env):
         delta_V = self.L * self.shares_per_contract*(new_option_price - self.current_option_price)
         delta_S = prev_h*(next_price - current_price)
         trading_cost =  self.cost_multiplier* self.tick_size * (abs(delta_h) + 0.01 * delta_h**2)
-        delta_wealth = delta_V + delta_S - trading_cost 
+        delta_wealth = delta_V - delta_S - trading_cost 
         self.current_option_price = new_option_price
         
-        # if self.done:
-        #     # asset_value = next_price * (prev_h + delta_h) 
-        #     termination_cost = self.cost_multiplier* self.tick_size * (abs(prev_h + delta_h) + 0.01 * (prev_h + delta_h)**2)
-        #     payoff = self.L *self.shares_per_contract* max(0, next_price - self.strike_price)
-        #     delta_wealth +=  payoff - termination_cost
+        if self.done:
+            # asset_value = next_price * (prev_h + delta_h) 
+            termination_cost = self.cost_multiplier* self.tick_size * (abs(prev_h + delta_h) + 0.01 * (prev_h + delta_h)**2)
+            payoff = self.L *self.shares_per_contract* max(0, next_price - self.strike_price)
+            delta_wealth +=  payoff - termination_cost
         
         norm_factor = 1/1e4
-        reward = (delta_wealth - (0.1/2)*(abs(delta_wealth)**2)) #reward function according to Kolm (2019), quadratic utility mean variance optimization 
-        return reward*norm_factor
+
+
+        reward = (delta_wealth - (self.kappa/2)*(abs(delta_wealth)**2)) #reward function according to Kolm (2019), quadratic utility mean variance optimization 
+        reward *=norm_factor
+
+        tolerance = 0.01
+        if abs(delta_wealth) < tolerance:
+            reward += 0.1  # Incentivize close-to-zero PnL
+        
+        if delta_wealth > self.prev_delta_wealth:
+            reward += 0.1 # Reward reduction in negative PnL
+        self.prev_delta_wealth = delta_wealth
+
+        return reward
 
     def step(self, delta_h):
-        delta_h = self.delta_mapping[delta_h]
-        if self.integer_holdings :
-            delta_h = round(delta_h)
+        if self.act_space_type == "discrete":
+            delta_h = self.delta_mapping[delta_h]
+        else: 
+            delta_h = delta_h[0]
+            delta_h = round(delta_h, 2)
+
         new_h = self.h + delta_h
         #if abs(new_h) > self.shares_per_contract:
         #    new_h = new_h - delta_h
@@ -99,19 +117,19 @@ class env_hedging(Env):
             self.delta = self.option_price_model.compute_delta(self.n, self.current_price)
         else:
             assert "error 1"
+
         self.current_price = next_price
         self.h = new_h
         state = self.get_state()
         info = {}
-        return [state, reward, self.done,  self.done,  info]
+        return state, reward, self.done,  self.done,  info
 
     def get_state(self):
         time_to_maturity = self.T - self.n * self.dt
         if self.mode == "PL":
-            return np.array([self.h, self.current_price, time_to_maturity, self.current_option_price],
-                            dtype=float)
+            return np.array([self.h, self.current_price, time_to_maturity, self.current_option_price])
         else:
-            return np.array([self.h, self.current_price, time_to_maturity], dtype=float)
+            return np.array([self.h, self.current_price, time_to_maturity])
         
     def set_state(self, h, current_price, time_to_maturity, current_option_price, delta):
         self.h = h

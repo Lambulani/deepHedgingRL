@@ -24,7 +24,7 @@ apm = GBM(mu=mu, dt=dt, s_0=s_0, sigma=sigma)
 opm = BSM(strike_price=strike_price, risk_free_interest_rate=r, volatility=sigma, T=T, dt=dt)
 
 env = env_hedging(asset_price_model=apm, dt=dt, T=T, num_steps=num_steps, cost_multiplier = 0, tick_size=0.1,
-                     L=1, strike_price=strike_price, integer_holdings=True, initial_holding=0, mode="PL", shares_per_contract=100,
+                     L=1, strike_price=strike_price, integer_holdings=True, initial_holding=0, mode="PL", kappa = 0.1, act_space_type="discrete", shares_per_contract=100,
                   option_price_model=opm)
 
 
@@ -42,16 +42,17 @@ from torch.nn import functional as F
 import os 
 
 
-n_envs = 10
+n_envs = 4
 vec_env = make_vec_env(lambda:env_hedging(asset_price_model=apm, dt=dt, T=T, num_steps=num_steps, cost_multiplier = 0, tick_size=0.1,
-                     L=1, strike_price=strike_price, integer_holdings=True, initial_holding=0, mode="PL", shares_per_contract=100,
+                     L=1, strike_price=strike_price, integer_holdings=True, initial_holding=0, mode="PL",kappa=0.1,  act_space_type= "discrete", shares_per_contract=100,
                   option_price_model=opm), n_envs= n_envs)
 
 
 # Set up directories for logging and saving models
 log_dir = "results/PPO/du/logs"
 
-models_dir = "models/PPO/du/PPO_38"
+models_dir = "models/PPO/du/PPO_48"
+
 if not os.path.exists(models_dir):
     os.makedirs(models_dir)
 
@@ -65,15 +66,15 @@ learning_rate_schedule = get_schedule_fn(linear_decay_schedule(1e-4, 1e-5))
 
 
 class DuPPONetwork(nn.Module):
-    def __init__(self, feature_dim:int, last_layer_dim_pi : int =128, 
-                 last_layer_dim_vf: int =128):
+    def __init__(self, feature_dim:int, last_layer_dim_pi : int =256, 
+                 last_layer_dim_vf: int =256):
         super().__init__()
 
         self.latent_dim_pi = last_layer_dim_pi
         self.latent_dim_vf = last_layer_dim_vf
 
         layers = []
-        layer_size = 128
+        layer_size = 256
         for _ in range(5):  # 5 hidden layers
             layers.append(nn.Linear(feature_dim, layer_size))
             layers.append(nn.BatchNorm1d(layer_size))
@@ -114,15 +115,15 @@ model = PPO(
     policy= DuActorCriticPolicy, 
     env= vec_env, 
     learning_rate=learning_rate_schedule,
-    n_steps= 1500, #update every 750,000 episodes
-    n_epochs = 10,
+    n_steps= 3750, #update every 750,000 episodes
+    n_epochs = 5,
 batch_size = 1000, 
     clip_range= 0.2, 
 clip_range_vf = 0.2,
     verbose=1,
     gae_lambda= 0.9871191601388827, 
     gamma= 0.9,
-    ent_coef=0.01,  # c2
+    ent_coef=0.2,  # c2
     vf_coef=0.5,  #c1
     max_grad_norm= 0.5, 
    normalize_advantage= True,
@@ -134,7 +135,7 @@ clip_range_vf = 0.2,
 # Train the model in increments and save after each block of timesteps
 TIMESTEPS = 100000
 for i in range(1,200):
-    model.learn(total_timesteps=TIMESTEPS, reset_num_timesteps=False, tb_log_name="PPO_38", progress_bar= True )
+    model.learn(total_timesteps=TIMESTEPS, reset_num_timesteps=False, tb_log_name="PPO_48", progress_bar= True )
     model.save(f"{models_dir}/ppo_{TIMESTEPS*i}")
     
 
