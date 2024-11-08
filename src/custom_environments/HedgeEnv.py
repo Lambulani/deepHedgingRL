@@ -76,11 +76,10 @@ class env_hedging(Env):
             payoff = self.L *self.shares_per_contract* max(0, next_price - self.strike_price)
             delta_wealth +=  payoff - termination_cost
         
+        delta_wealth +=1/self.kappa
         norm_factor = 1/1e4
-
-
         reward = (delta_wealth - (self.kappa/2)*(abs(delta_wealth)**2)) #reward function according to Kolm (2019), quadratic utility mean variance optimization 
-        reward *=norm_factor
+        reward = norm_factor*reward
 
         tolerance = 0.01
         if abs(delta_wealth) < tolerance:
@@ -97,7 +96,6 @@ class env_hedging(Env):
             delta_h = self.delta_mapping[delta_h]
         else: 
             delta_h = delta_h[0]
-            delta_h = round(delta_h, 2)
 
         new_h = self.h + delta_h
         #if abs(new_h) > self.shares_per_contract:
@@ -148,7 +146,7 @@ class env_hedging(Env):
 
     def reset(self, seed = None, options = None):
         super().reset(seed = seed) 
-        self.seed(seed)
+        self.asset_price_model.seed(seed)
         self.asset_price_model.reset()
         self.n = 0
         self.done = False

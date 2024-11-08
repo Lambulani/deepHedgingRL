@@ -22,8 +22,8 @@ r = 0
 apm = GBM(mu=mu, dt=dt, s_0=s_0, sigma=sigma)
 opm = BSM(strike_price=strike_price, risk_free_interest_rate=r, volatility=sigma, T=T, dt=dt)
 
-env = env_hedging(asset_price_model=apm, dt=dt, T=T, num_steps=num_steps, cost_multiplier = 5, tick_size=0.1,
-                     L=1, strike_price=strike_price, integer_holdings=True, initial_holding=0, mode="PL", shares_per_contract=100,
+env = env_hedging(asset_price_model=apm, dt=dt, T=T, num_steps=num_steps, cost_multiplier = 1, tick_size=0.1,
+                     L=1, strike_price=strike_price, integer_holdings=True, initial_holding=0, mode="PL", kappa = 0.1, act_space_type="discrete", shares_per_contract=100,
                   option_price_model=opm)
 
 
@@ -42,7 +42,7 @@ import os
 
 
 n_envs = 10
-vec_env = make_vec_env(lambda:env_hedging(asset_price_model=apm, dt=dt, T=T, num_steps=num_steps, cost_multiplier = 5   , tick_size=0.1,
+vec_env = make_vec_env(lambda:env_hedging(asset_price_model=apm, dt=dt, T=T, num_steps=num_steps, cost_multiplier = 5  , tick_size=0.1,
                      L=1, strike_price=strike_price, integer_holdings=True, initial_holding=0, mode="PL", shares_per_contract=100,
                   option_price_model=opm), n_envs= n_envs)
 
@@ -60,7 +60,7 @@ def linear_decay_schedule(initial_value: float, final_value:float) -> Callable[[
         return initial_value - progress*(initial_value- final_value)
     return schedule
 
-learning_rate_schedule = get_schedule_fn(linear_decay_schedule(1e-4, 1e-5))
+learning_rate_schedule = get_schedule_fn(linear_decay_schedule(1e-5, 1e-4))
 
 
 class DuMLP(nn.Module):
@@ -131,17 +131,18 @@ model = DQN(policy= DuDQNPolicy,
     batch_size= 1024, 
     buffer_size= 500000,
     learning_starts= 50000,
-    gamma = 0.87,
+    gamma = 0.9,
     target_update_interval= 750000,
-    train_freq= ( 1, "step"),
-    gradient_steps= -1, 
-    exploration_fraction= 0.4,
+    train_freq= ( 750000, "step"),
+    gradient_steps= 1, 
+    exploration_fraction= 0.2,
+    exploration_initial_eps= 1, 
     exploration_final_eps= 0.01,
     verbose=1,
     device= "auto", 
     tensorboard_log= log_dir)
 
-TIMESTEPS = 750000
-for i in range(1, 2):
+TIMESTEPS = 100000
+for i in range(1, 500):
     model.learn(total_timesteps=TIMESTEPS, reset_num_timesteps=False, tb_log_name="DQN_4", progress_bar= True)
     model.save(f"{models_dir}/dqn_{TIMESTEPS*i}")

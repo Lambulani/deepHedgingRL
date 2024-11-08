@@ -38,12 +38,16 @@ class GBM(GenericAssetPriceModel):
 
     def compute_next_price(self):
         # Wiener process increment
-        dz = np.random.normal(0, 1) * np.sqrt(self.dt)
+        dz = self.rng.normal(0, 1) * np.sqrt(self.dt)
         
         # GBM formula
         new_price = self.current_price * np.exp((self.mu - 0.5 * self.sigma ** 2) * self.dt
                    + self.sigma * dz)
         self.current_price = new_price
+    
+    def seed(self, seed=None):
+        # Set the seed for the random generator
+        self.rng = np.random.default_rng(seed)
 
     def reset(self):
         # Reset to initial price
